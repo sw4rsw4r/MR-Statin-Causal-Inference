@@ -1,0 +1,137 @@
+---
+title: "MR-Statin-Causal inference"
+author: "Seongwon Hwang"
+date: "2024-04-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("mr_utils.R")
+```
+
+Target gene : HMGCR
+```{r}
+gene_of_interest <- "HMGCR"
+```
+
+LD data was downloaded using [aws](https://registry.opendata.aws/ukbb-ld/). 
+```{r}
+# aws s3 cp s3://broad-alkesgroup-ukbb-ld/ . --recursive --no-sign-request --exclude "*" --include "UKBB_LD/chr5_74000001_77000001*"
+path_ld_mat <- "data/UKBB_LD/chr5_74000001_77000001.npz"
+path_ld_meta <- "data/UKBB_LD/chr5_74000001_77000001.gz"
+```
+
+Load summary data
+```{r}
+this_window <- 10000
+# lst_data_subset <- list()
+# lst_data_subset[["CAD"]] <- load_CAD(gene_of_interest, window = this_window)
+# lst_data_subset[["T2D"]] <- load_T2D(type = "EUR", gene_of_interest, window = this_window)
+#
+# lst_pheno_GWAS <- c("Pancreatitis", "Hepatitis", "Myositis", "Myalgia", "Alzheimer", "Parkinson", "Atherosclerosis", "Amyotrophic lateral sclerosis", "Acute Insulin response", "Fasting Insulin", "Fasting Glucose", "BMI", "LDL-C", "HDL-C", "Triglyceride", "WH ratio", "Leptin", "Sterol", "Cortisol", "Testosterone", "Estradiol", "Vitamin D", "Bile acid", "Aldosterone", "CRP", "HbA1c", "Ubiquinone", "Erectile dysfunction", "Nonalcoholic fatty liver disease")
+# for (pheno in lst_pheno_GWAS) {
+#   lst_data_subset[[pheno]] <- load_GWAS(pheno, gene_of_interest, window = this_window)
+# }
+#
+# lst_pQTL <- c("HMGCR", "Phosphomevalonate kinase")
+# for (pheno in lst_pQTL) {
+#   lst_data_subset[[pheno]] <- load_pQTL(pheno, gene_of_interest, window = this_window)
+# }
+#
+# lst_eQTL <- c("Brain caudate", "Small intestine", "Liver", "Pancreas", "Muscle", "Blood", "Fat", "Adrenal gland", "Testis", "Ovary", "Skin sun exposed", "Skin not sun exposed", "Adipose subcutaneous", "Adipose visceral", "Brain cerebellum", "Brain cortex", "Brain hippocampus", "Brain putamen", "Brain spinal cord", "Brain substantia nigra")
+# for (cell_type in lst_eQTL) {
+#   lst_data_subset[[cell_type]] <- load_eQTL(cell_type, gene_of_interest, window = this_window)
+# }
+# saveRDS(lst_data_subset, file = paste0("data/", gene_of_interest, "_window_", this_window, "_lst_data_subset.RDS"))
+```
+
+
+```{r}
+lst_data_subset <- readRDS(paste0("data/", gene_of_interest, "_window_", this_window, "_lst_data_subset.RDS"))
+sapply(lst_data_subset, nrow)
+```
+
+
+Run Proportional colocalization analysis for all possible pairs
+```{r}
+input_risk_factors1 <- as.data.frame(t(combn(x = names(lst_data_subset), m = 2, simplify = T)))
+
+for (idx in 1:nrow(input_risk_factors1)) {
+  names_risk_factor <- as.character(input_risk_factors1[idx, ])
+
+  # create output directory
+  dir_output <- file.path("results", paste0("window_", this_window), gene_of_interest, "propcoloc", paste(names_risk_factor, collapse = "_"))
+  if (!file.exists(dir_output)) dir.create(dir_output, recursive = T)
+
+  fname_output1 <- paste0(dir_output, "/03_prop.coloc_", paste(sort(names_risk_factor), collapse = "_"), ".txt")
+  fname_output2 <- paste0(dir_output, "/03_prop.coloc_", paste(rev(sort(names_risk_factor)), collapse = "_"), ".txt")
+  if (file.exists(fname_output1) || file.exists(fname_output2)) next
+
+  lst_data <- list(
+    risk_factors = sapply(names_risk_factor, function(x) lst_data_subset[[x]], simplify = F),
+    outcome = NULL
+  )
+  res <- harmonize(lst_data,
+    path_ld_mat = path_ld_mat,
+    path_ld_meta = path_ld_meta
+  )
+  if (is.null(res) || is.null(res$ld) || nrow(res$ld) < 2) next
+
+  # Run Proportional colocalization analysis
+  run_propcoloc(res, dir_output, names_risk_factor[1], names_risk_factor[2])
+  run_propcoloc(res, dir_output, names_risk_factor[2], names_risk_factor[1])
+}
+df_res_subset <- select_candidate(gene_of_interest, this_window)
+```
+
+Run MVMR for the selected pairs based on prop coloc
+```{r, res=100, fig.height=15, fig.width=15}
+input_risk_factors2 <- df_res_subset[, c("fac1", "fac2")]
+lst_of_outcomes <- c("CAD", "T2D", "Alzheimer", "Pancreatitis", "Hepatitis", "Myositis", "Myalgia", "Parkinson", "Atherosclerosis", "Amyotrophic lateral sclerosis", "Nonalcoholic fatty liver disease")
+
+for (name_outcome in lst_of_outcomes) {
+  for (idx in 1:nrow(input_risk_factors2)) {
+    names_risk_factor <- as.character(input_risk_factors2[idx, ])
+    if (gene_of_interest == "ANGPTL4" & idx == 13 & name_outcome == "Myositis") next
+
+    # create output directory
+    dir_output <- file.path("results", paste0("window_", this_window), gene_of_interest, "MVMR", name_outcome, paste(names_risk_factor, collapse = "_"))
+    if (!file.exists(dir_output)) dir.create(dir_output, recursive = T)
+
+    fname_output <- file.path(dir_output, "02_MVMR_PCA_liml.txt")
+    if (file.exists(fname_output)) next
+
+    lst_data <- list(
+      risk_factors = sapply(names_risk_factor, function(x) lst_data_subset[[x]], simplify = F),
+      outcome = sapply(name_outcome, function(x) lst_data_subset[[x]], simplify = F)
+    )
+    res <- harmonize(lst_data,
+      path_ld_mat = path_ld_mat,
+      path_ld_meta = path_ld_meta
+    )
+    if (is.null(res) || is.null(res$ld) || nrow(res$ld) < 2) next
+
+    run_PCA_liml(res, dir_output)
+  }
+}
+```
+
+Plot
+```{r}
+lst_of_pairs <- NULL
+eQTLonly <- F
+for (name_outcome in lst_of_outcomes) {
+  out <- forestplot_main_combined(name_outcome, this_window, eQTLonly)
+  if (is.null(out)) next
+  for (idx in 1:nrow(out)) {
+    this_gene <- out[idx, ] %>% pull(gene)
+    this_pair <- out[idx, ] %>% pull(Pairs)
+    lst_of_pairs[[this_gene]] <- unique(c(lst_of_pairs[[this_gene]], this_pair))
+  }
+}
+
+for (this_gene in names(lst_of_pairs)) {
+  plot_propcoloc_barplots_pairwise(this_gene, lst_of_pairs[[this_gene]], this_window, eQTLonly)
+}
+```
