@@ -7,22 +7,25 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
 source("mr_utils.R")
 ```
 
-Target gene : HMGCR
+## Target gene : HMGCR
 ```{r}
 gene_of_interest <- "HMGCR"
 ```
 
-LD data was downloaded using [aws](https://registry.opendata.aws/ukbb-ld/). 
+## LD data was downloaded using [aws](https://registry.opendata.aws/ukbb-ld/). 
 ```{r}
 # aws s3 cp s3://broad-alkesgroup-ukbb-ld/ . --recursive --no-sign-request --exclude "*" --include "UKBB_LD/chr5_74000001_77000001*"
 path_ld_mat <- "data/UKBB_LD/chr5_74000001_77000001.npz"
 path_ld_meta <- "data/UKBB_LD/chr5_74000001_77000001.gz"
 ```
 
-Load summary data
+## Load summary data
 ```{r}
 this_window <- 10000
 # lst_data_subset <- list()
@@ -53,7 +56,7 @@ sapply(lst_data_subset, nrow)
 ```
 
 
-Run Proportional colocalization analysis for all possible pairs
+## Run Proportional colocalization analysis for all possible pairs
 ```{r}
 input_risk_factors1 <- as.data.frame(t(combn(x = names(lst_data_subset), m = 2, simplify = T)))
 
@@ -64,9 +67,9 @@ for (idx in 1:nrow(input_risk_factors1)) {
   dir_output <- file.path("results", paste0("window_", this_window), gene_of_interest, "propcoloc", paste(names_risk_factor, collapse = "_"))
   if (!file.exists(dir_output)) dir.create(dir_output, recursive = T)
 
-  fname_output1 <- paste0(dir_output, "/03_prop.coloc_", paste(sort(names_risk_factor), collapse = "_"), ".txt")
-  fname_output2 <- paste0(dir_output, "/03_prop.coloc_", paste(rev(sort(names_risk_factor)), collapse = "_"), ".txt")
-  if (file.exists(fname_output1) || file.exists(fname_output2)) next
+  # fname_output1 <- paste0(dir_output, "/03_prop.coloc_", paste(sort(names_risk_factor), collapse = "_"), ".txt")
+  # fname_output2 <- paste0(dir_output, "/03_prop.coloc_", paste(rev(sort(names_risk_factor)), collapse = "_"), ".txt")
+  # if (file.exists(fname_output1) || file.exists(fname_output2)) next
 
   lst_data <- list(
     risk_factors = sapply(names_risk_factor, function(x) lst_data_subset[[x]], simplify = F),
@@ -85,7 +88,7 @@ for (idx in 1:nrow(input_risk_factors1)) {
 df_res_subset <- select_candidate(gene_of_interest, this_window)
 ```
 
-Run MVMR for the selected pairs based on prop coloc
+## Run MVMR for the selected pairs based on prop coloc
 ```{r, res=100, fig.height=15, fig.width=15}
 input_risk_factors2 <- df_res_subset[, c("fac1", "fac2")]
 lst_of_outcomes <- c("CAD", "T2D", "Alzheimer", "Pancreatitis", "Hepatitis", "Myositis", "Myalgia", "Parkinson", "Atherosclerosis", "Amyotrophic lateral sclerosis", "Nonalcoholic fatty liver disease")
@@ -93,7 +96,6 @@ lst_of_outcomes <- c("CAD", "T2D", "Alzheimer", "Pancreatitis", "Hepatitis", "My
 for (name_outcome in lst_of_outcomes) {
   for (idx in 1:nrow(input_risk_factors2)) {
     names_risk_factor <- as.character(input_risk_factors2[idx, ])
-    if (gene_of_interest == "ANGPTL4" & idx == 13 & name_outcome == "Myositis") next
 
     # create output directory
     dir_output <- file.path("results", paste0("window_", this_window), gene_of_interest, "MVMR", name_outcome, paste(names_risk_factor, collapse = "_"))
@@ -117,7 +119,7 @@ for (name_outcome in lst_of_outcomes) {
 }
 ```
 
-Plot
+## Plot
 ```{r}
 lst_of_pairs <- NULL
 eQTLonly <- F
@@ -135,3 +137,49 @@ for (this_gene in names(lst_of_pairs)) {
   plot_propcoloc_barplots_pairwise(this_gene, lst_of_pairs[[this_gene]], this_window, eQTLonly)
 }
 ```
+
+```{r}
+eQTLonly <- T
+lst_eQTL <- c("Brain caudate", "Small intestine", "Liver", "Pancreas", "Muscle", "Blood", "Fat", "Adrenal gland", "Testis", "Ovary", "Skin sun exposed", "Skin not sun exposed", "Adipose subcutaneous", "Adipose visceral", "Brain cerebellum", "Brain cortex", "Brain hippocampus", "Brain putamen", "Brain spinal cord", "Brain substantia nigra")
+
+lst_of_pairs <- list()
+for (this_gene in c("HMGCR", "LPL", "ANGPTL4", "PCSK9")) {
+  df_res_subset <- read.delim(paste0("results/window_", this_window, "/", this_gene, "/selected_pairs_based_on_propcoloc_union.txt"))
+
+  for (this_pair in df_res_subset$group) {
+    names_risk_factors <- unlist(strsplit(this_pair, "_"))
+    if (eQTLonly) {
+      if (!all(names_risk_factors %in% lst_eQTL)) next
+    } else {
+      if (sum(names_risk_factors %in% lst_eQTL) != 0) next
+    }
+
+    lst_of_pairs[[this_gene]] <- unique(c(lst_of_pairs[[this_gene]], this_pair))
+  }
+}
+
+for (this_gene in names(lst_of_pairs)) {
+  plot_propcoloc_barplots_pairwise(this_gene, lst_of_pairs[[this_gene]], this_window, eQTLonly)
+}
+```
+
+
+```{r}
+lst_of_pairs <- NULL
+eQTLonly <- T
+for (this_gene in lst_of_genes) {
+  out <- forestplot_main_combined2(this_gene, this_window, eQTLonly)
+  if (is.null(out)) next
+
+  for (idx in 1:nrow(out)) {
+    this_gene <- out[idx, ] %>% pull(gene)
+    this_pair <- out[idx, ] %>% pull(Pairs)
+    lst_of_pairs[[this_gene]] <- unique(c(lst_of_pairs[[this_gene]], this_pair))
+  }
+}
+
+for (this_gene in names(lst_of_pairs)) {
+  plot_associations(this_gene, lst_of_pairs[[this_gene]], this_window, eQTLonly)
+}
+```
+

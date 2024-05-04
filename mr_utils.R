@@ -1067,6 +1067,86 @@ forestplot_main_combined <- function(name_outcome, this_window, eQTLonly = F) {
   return(p_df_filt)
 }
 
+forestplot_main_combined2 <- function(gene_of_interest, this_window, eQTLonly = F) {
+  p_df <- NULL
+  lst_eQTL <- c("Brain caudate", "Small intestine", "Liver", "Pancreas", "Muscle", "Blood", "Fat", "Adrenal gland", "Testis", "Ovary", "Skin sun exposed", "Skin not sun exposed", "Adipose subcutaneous", "Adipose visceral", "Brain cerebellum", "Brain cortex", "Brain hippocampus", "Brain putamen", "Brain spinal cord", "Brain substantia nigra")
+  lst_of_outcomes <- c("CAD", "T2D", "Alzheimer", "Pancreatitis", "Hepatitis", "Myositis", "Myalgia", "Parkinson", "Atherosclerosis", "Amyotrophic lateral sclerosis", "Nonalcoholic fatty liver disease")
+  for (name_outcome in lst_of_outcomes) {
+    DIR <- paste0("results/window_", this_window, "/", gene_of_interest, "/MVMR/", name_outcome)
+    lst_files <- list.files(DIR, full.names = T)
+    lst_files <- lst_files[base::sapply(lst_files, function(x) file.info(x)$isdir)]
+
+    for (this_file in lst_files) {
+      this_pair <- basename(this_file)
+      names_risk_factors <- unlist(strsplit(this_pair, "_"))
+
+      if (eQTLonly) {
+        if (!all(names_risk_factors %in% lst_eQTL)) next
+      } else {
+        if (sum(names_risk_factors %in% lst_eQTL) != 0) next
+      }
+      if (name_outcome %in% names_risk_factors) next
+      fname <- file.path(this_file, "02_MVMR_PCA_liml.txt")
+      if (!file.exists(fname)) next
+
+      df <- read.delim(fname) %>%
+        dplyr::mutate(
+          gene = gene_of_interest,
+          outcome = name_outcome,
+          estimate = as.numeric(estimate),
+          lower = as.numeric(lower),
+          upper = as.numeric(upper),
+          p.value = as.numeric(p.value),
+          nlogP = -log10(p.value),
+          Thres = factor(sapply(strsplit(group, "_"), function(x) x[3]), levels = c("99%", "99.9%", "99.99%")),
+          Fstat = ifelse(Fstat > 10, 10, Fstat),
+          Direction = factor(ifelse(estimate > 0, "Pos", "Neg"), levels = c("Pos", "Neg")),
+          Pairs = this_pair,
+          factor = factor
+        ) %>%
+        filter(Type == "ci", Thres == "99%")
+      p_df <- rbind(p_df, df)
+    }
+  }
+  if (is.null(p_df)) {
+    return(NULL)
+  }
+  p_df_filt <- p_df %>%
+    mutate(
+      sig = p.value < 0.05,
+      col = ifelse(p.value < .05, "sig", "notsig"),
+      outcome = sapply(strsplit(p_df$outcome, " "), function(x) paste(x, collapse = "\n"))
+    ) %>%
+    group_by(outcome, Pairs) %>%
+    filter(sum(sig) > 0) %>%
+    group_by(Pairs) %>%
+    filter(length(Pairs) > 2)
+
+  if (nrow(p_df_filt) == 0) {
+    return(NULL)
+  }
+  p1 <- ggplot(p_df_filt, aes(x = factor, y = estimate, colour = col)) +
+    geom_hline(yintercept = 0, lty = 2, col = "#bdb9b9") +
+    geom_point(shape = 15, size = 1.25, position = position_dodge(0.5)) +
+    geom_errorbar(aes(ymin = lower, ymax = upper), position = position_dodge(0.5), width = 0.2, size = 0.5) +
+    theme_classic() +
+    ggh4x::facet_grid2(Pairs ~ outcome, scales = "free") +
+    ggtitle(paste0(gene_of_interest, "")) +
+    scale_color_manual(values = c(notsig = "black", sig = "#aa0202")) +
+    # theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    theme(legend.position = "none", strip.text.y = element_blank()) +
+    xlab("") +
+    ylab("Estimate") +
+    coord_flip()
+  n_pairs <- length(unique(p_df_filt$Pairs))
+  this_width <- max(4.5, length(unique(p_df_filt$outcome)) * 2)
+  this_height <- max(3, n_pairs / 2)
+  pdf(paste0("results/window_", this_window, "/08_MVMR_PCA_liml_LM_", gene_of_interest, "_eQTLonly_", eQTLonly, ".pdf"), width = this_width, height = this_height)
+  plot(p1)
+  dev.off()
+  return(p_df_filt)
+}
+
 plot_propcoloc_barplots_pairwise <- function(this_gene, lst_pairs, this_window, eQTLonly) {
   DIR <- paste0("results/window_", this_window, "/", this_gene, "/propcoloc")
   lst_factors <- unique(unlist(strsplit(lst_pairs, "_")))
@@ -1086,8 +1166,8 @@ plot_propcoloc_barplots_pairwise <- function(this_gene, lst_pairs, this_window, 
       if (file.exists(fname1)) {
         fac1_ <- paste(unlist(strsplit(fac1, " ")), collapse = "\n")
         fac2_ <- paste(unlist(strsplit(fac2, " ")), collapse = "\n")
-        df1 <- with(readRDS(fname1), data.frame(group = this_group, fac1 = fac1_, fac2 = fac2_, p_full, p_cond, LM_full, LM_cond))
-        df2 <- with(readRDS(fname2), data.frame(group = this_group, fac1 = fac2_, fac2 = fac1_, p_full, p_cond, LM_full, LM_cond))
+        df1 <- with(readRDS(fname1), data.frame(group = paste0(fac1, "_", fac2), fac1 = fac1_, fac2 = fac2_, p_full, p_cond, LM_full, LM_cond))
+        df2 <- with(readRDS(fname2), data.frame(group = paste0(fac2, "_", fac1), fac1 = fac2_, fac2 = fac1_, p_full, p_cond, LM_full, LM_cond))
         df_res <- rbind(df_res, rbind(df1, df2))
       }
     }
@@ -1130,5 +1210,30 @@ plot_propcoloc_barplots_pairwise <- function(this_gene, lst_pairs, this_window, 
   this_height <- max(5, length(lst_factors) * 1.6) - 1.5
   pdf(paste0("results/window_", this_window, "/07_plot_pairs_", this_gene, "_eQTLonly_", eQTLonly, ".pdf"), width = this_width, height = this_height)
   plot(p)
+  dev.off()
+}
+
+
+
+plot_associations <- function(this_gene, lst_pairs, this_window, eQTLonly) {
+  DIR <- paste0("results/window_", this_window, "/", this_gene, "/propcoloc")
+  if (length(lst_pairs) == 0) next
+  this_width <- 4.5
+  this_height <- 3.5
+  pdf(paste0("results/window_", this_window, "/09_plot_associations_", this_gene, "_eQTLonly_", eQTLonly, ".pdf"), width = this_width, height = this_height)
+  for (this_pair in lst_pairs) {
+    this_dir <- paste0(DIR, "/", this_pair)
+    fac1 <- strsplit(this_pair, "_")[[1]][1]
+    fac2 <- strsplit(this_pair, "_")[[1]][2]
+
+    fname1 <- paste0(this_dir, "/03_prop.coloc_", fac1, "_", fac2, ".RDS")
+    fname2 <- paste0(this_dir, "/03_prop.coloc_", fac2, "_", fac1, ".RDS")
+    res1 <- readRDS(fname1)
+    res2 <- readRDS(fname2)
+    plot(res1$fig_uni)
+    plot(res1$fig_multi)
+    plot(res2$fig_uni)
+    plot(res2$fig_multi)
+  }
   dev.off()
 }
