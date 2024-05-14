@@ -221,8 +221,14 @@ load_GWAS <- function(pheno, gene, data_type = "quant", case_prop = NA, window) 
     nsample <- 219872
   }
   if (pheno == "Leptin") {
-    fname <- "data/GWAS/33067605-GCST90012076-EFO_0005000.h.tsv.gz" # GRCh38
-    nsample <- 21758
+    # fname <- "data/GWAS/33067605-GCST90012076-EFO_0005000.h.tsv.gz" # GRCh38
+    # nsample <- 21758
+    fname <- "data/GWAS/32917775-GCST90007310-EFO_0005000-Build37.f.tsv.gz"
+    nsample <- 49909
+    # fname <- "data/GWAS/GCST90179347_buildGRCh38.tsv.gz"
+    # nsample <- 2856
+    # fname <- "data/GWAS/26833098-GCST003367-EFO_0005000.h.tsv.gz"
+    # nsample <- 35292 # https://www.ebi.ac.uk/gwas/rest/api/studies/GCST003367
   }
   if (pheno == "Sterol") {
     fname <- "data/GWAS/34503513-GCST90060133-EFO_0010231-Build37.f.tsv.gz"
@@ -255,8 +261,10 @@ load_GWAS <- function(pheno, gene, data_type = "quant", case_prop = NA, window) 
     nsample <- 1128
   }
   if (pheno == "CRP") {
-    fname <- "data/GWAS/33328453-GCST90019446-EFO_0004458-Build37.f.tsv.gz"
-    nsample <- 10708
+    # fname <- "data/GWAS/33328453-GCST90019446-EFO_0004458-Build37.f.tsv.gz" # 2020
+    # nsample <- 10708
+    fname <- "data/GWAS/GCST90309897.h.tsv.gz" # 2024
+    nsample <- 174488
   }
   if (pheno == "HbA1c") {
     fname <- "data/GWAS/34059833-GCST90002244-EFO_0004541-Build37.f.tsv.gz" # GRCh38
@@ -280,7 +288,7 @@ load_GWAS <- function(pheno, gene, data_type = "quant", case_prop = NA, window) 
   }
 
   df <- vroom(fname)
-  genomic_version <- ifelse(grepl("GRCh37", fname) || grepl("Build37", fname), "GRCh37", "GRCh38")
+  genomic_version <- ifelse(grepl("GRCh37", fname) || grepl("[Bb]uild37", fname), "GRCh37", "GRCh38")
 
   if (fname == "data/GWAS/34255042-GCST90020092-EFO_0004697-Build38.f.tsv.gz") genomic_version <- "GRCh37"
 
@@ -293,6 +301,8 @@ load_GWAS <- function(pheno, gene, data_type = "quant", case_prop = NA, window) 
     )
     if (fname == "data/GWAS/GCST90020025.h.tsv.gz") df_filt <- df_filt %>% rename(rs_id = "variant_id")
     if (fname == "data/GWAS/GCST90275041.h.tsv.gz") df_filt <- df_filt %>% mutate(variant_id = rs_id)
+    if (fname == "data/GWAS/GCST90309897.h.tsv.gz") df_filt <- df_filt %>% mutate(variant_id = rsid)
+    if (fname == "data/GWAS/GCST90179347_buildGRCh38.tsv.gz") df_filt <- df_filt %>% mutate(variant_id = NA)
     if (fname %in% c("data/GWAS/34662886-GCST90080544-EFO_0000408-Build38.f.tsv.gz", "data/GWAS/34662886-GCST90077706-EFO_0000278.h.tsv.gz")) {
       df_filt <- df_filt %>% rename(odds_ratio = "beta")
     }
@@ -995,6 +1005,7 @@ forestplot_main_combined <- function(name_outcome, this_window, eQTLonly = F) {
   for (gene_of_interest in lst_of_genes) {
     DIR <- paste0("results/window_", this_window, "/", gene_of_interest, "/MVMR/", name_outcome)
     lst_files <- list.files(DIR, full.names = T)
+    if (length(lst_files) == 0) next
     lst_files <- lst_files[base::sapply(lst_files, function(x) file.info(x)$isdir)]
 
     for (this_file in lst_files) {
@@ -1067,7 +1078,7 @@ forestplot_main_combined <- function(name_outcome, this_window, eQTLonly = F) {
   return(p_df_filt)
 }
 
-forestplot_main_combined2 <- function(gene_of_interest, this_window, eQTLonly = F) {
+forestplot_main_combined2 <- function(gene_of_interest, this_window, eQTLonly = F, fig_type = NULL, fig_name = NULL) {
   p_df <- NULL
   lst_eQTL <- c("Brain caudate", "Small intestine", "Liver", "Pancreas", "Muscle", "Blood", "Fat", "Adrenal gland", "Testis", "Ovary", "Skin sun exposed", "Skin not sun exposed", "Adipose subcutaneous", "Adipose visceral", "Brain cerebellum", "Brain cortex", "Brain hippocampus", "Brain putamen", "Brain spinal cord", "Brain substantia nigra")
   lst_of_outcomes <- c("CAD", "T2D", "Alzheimer", "Pancreatitis", "Hepatitis", "Myositis", "Myalgia", "Parkinson", "Atherosclerosis", "Amyotrophic lateral sclerosis", "Nonalcoholic fatty liver disease")
@@ -1117,10 +1128,13 @@ forestplot_main_combined2 <- function(gene_of_interest, this_window, eQTLonly = 
       col = ifelse(p.value < .05, "sig", "notsig"),
       outcome = sapply(strsplit(p_df$outcome, " "), function(x) paste(x, collapse = "\n"))
     ) %>%
+    filter(!(gene == "LPL" & outcome == "Alzheimer"), !(gene == "HMGCR" & outcome == "Amyotrophic\nlateral\nsclerosis")) %>%
     group_by(outcome, Pairs) %>%
     filter(sum(sig) > 0) %>%
     group_by(Pairs) %>%
-    filter(length(Pairs) > 2)
+    filter(length(unique(factor[sig])) == 2)
+
+  if (!is.null(fig_type) && fig_type == "main1") p_df_filt <- p_df_filt %>% filter(Pairs == "BMI_LDL-C")
 
   if (nrow(p_df_filt) == 0) {
     return(NULL)
@@ -1141,15 +1155,17 @@ forestplot_main_combined2 <- function(gene_of_interest, this_window, eQTLonly = 
   n_pairs <- length(unique(p_df_filt$Pairs))
   this_width <- max(4.5, length(unique(p_df_filt$outcome)) * 2)
   this_height <- max(3, n_pairs / 2)
-  pdf(paste0("results/window_", this_window, "/08_MVMR_PCA_liml_LM_", gene_of_interest, "_eQTLonly_", eQTLonly, ".pdf"), width = this_width, height = this_height)
+  if (is.null(fig_name)) fig_name <- paste0("results/window_", this_window, "/12_main_MVMR_PCA_liml_LM_", gene_of_interest, "_eQTLonly_", eQTLonly, ".pdf")
+  pdf(fig_name, width = this_width, height = this_height)
   plot(p1)
   dev.off()
   return(p_df_filt)
 }
 
-plot_propcoloc_barplots_pairwise <- function(this_gene, lst_pairs, this_window, eQTLonly) {
+plot_propcoloc_barplots_pairwise <- function(this_gene, lst_pairs, this_window, eQTLonly, fig_type = NULL, fig_name = NULL) {
   DIR <- paste0("results/window_", this_window, "/", this_gene, "/propcoloc")
   lst_factors <- unique(unlist(strsplit(lst_pairs, "_")))
+  if (!is.null(fig_type) && fig_type == "main1") lst_factors <- setdiff(lst_factors, c("CAD", "T2D", "Nonalcoholic fatty liver disease"))
 
   df_res <- NULL
   for (fac1 in lst_factors) {
@@ -1206,9 +1222,10 @@ plot_propcoloc_barplots_pairwise <- function(this_gene, lst_pairs, this_window, 
       fill = NA, colour = "red", xmin = -Inf, xmax = Inf,
       lwd = 2, ymin = -Inf, ymax = Inf
     )
-  this_width <- max(5, length(lst_factors) * 1.6)
-  this_height <- max(5, length(lst_factors) * 1.6) - 1.5
-  pdf(paste0("results/window_", this_window, "/07_plot_pairs_", this_gene, "_eQTLonly_", eQTLonly, ".pdf"), width = this_width, height = this_height)
+  this_width <- max(5, length(lst_factors) * 1.5)
+  this_height <- max(5, length(lst_factors) * 1.5) - 1.5
+  if (is.null(fig_name)) fig_name <- paste0("results/window_", this_window, "/07_plot_pairs_", this_gene, "_eQTLonly_", eQTLonly, ".pdf")
+  pdf(fig_name, width = this_width, height = this_height)
   plot(p)
   dev.off()
 }
@@ -1220,7 +1237,7 @@ plot_associations <- function(this_gene, lst_pairs, this_window, eQTLonly) {
   if (length(lst_pairs) == 0) next
   this_width <- 4.5
   this_height <- 3.5
-  pdf(paste0("results/window_", this_window, "/09_plot_associations_", this_gene, "_eQTLonly_", eQTLonly, ".pdf"), width = this_width, height = this_height)
+  pdf(paste0("results/window_", this_window, "/11_plot_associations_", this_gene, "_eQTLonly_", eQTLonly, ".pdf"), width = this_width, height = this_height)
   for (this_pair in lst_pairs) {
     this_dir <- paste0(DIR, "/", this_pair)
     fac1 <- strsplit(this_pair, "_")[[1]][1]
