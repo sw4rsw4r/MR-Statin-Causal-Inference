@@ -789,9 +789,9 @@ select_candidate <- function(gene_of_interest, this_window) {
     }
   }
   df_res_subset <- df_res %>%
-    filter((p_cond < .05 & LM_cond < .05) | (p_cond_rev < .05 & LM_cond_rev < .05))
+    filter((p_cond < .05 & LM_cond < .05) & (p_cond_rev < .05 & LM_cond_rev < .05))
 
-  write.table(df_res_subset, paste0("results/window_", this_window, "/", gene_of_interest, "/selected_pairs_based_on_propcoloc_union.txt"), quote = F, row.names = F, col.names = T, sep = "\t")
+  write.table(df_res_subset, paste0("results/window_", this_window, "/", gene_of_interest, "/selected_pairs_based_on_propcoloc.txt"), quote = F, row.names = F, col.names = T, sep = "\t")
   return(df_res_subset)
 }
 
